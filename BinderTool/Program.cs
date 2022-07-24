@@ -231,7 +231,7 @@ namespace BinderTool
                 case FileType.Enfl:
                     break;
                 default:
-                    Directory.CreateDirectory(options.OutputPath);
+                    Directory.CreateDirectory(options.OutputPath+".ex");
                     break;
             }
 
@@ -495,7 +495,7 @@ namespace BinderTool
                         var name = $"{hash:D10}_{fileNameWithoutExtension}.bhd";
                         bytesWritten += WriteFile(Path.Combine(options.OutputPath, name), file);
                     }
-                    Console.WriteLine("Dne unpacking inner .bdt files.");
+                    Console.WriteLine("Done unpacking inner .bdt files.");
                 }
                 Console.WriteLine($"Succesfully extracted {extracted}/{numEntries} files ({numEntries - extracted} failed), totaling {bytesWritten} bytes written to disk");
                 Console.WriteLine($"{missingNames} file names were unknown");
@@ -518,6 +518,17 @@ namespace BinderTool
             }
             outS.Close();
             return (ulong)data.Length;
+        }
+
+        /// <summary>
+        /// Replaces all characters not allowed in paths with escapes
+        /// </summary>
+        public static string MakePathSafe(string path)
+        {
+            foreach (char c in Path.GetInvalidFileNameChars().Where(c => c != '\\')) {
+                path = path.Replace("" + c, $"U+{(int)c:0D4}");
+            }
+            return path;
         }
 
         /// <summary>
@@ -560,7 +571,7 @@ namespace BinderTool
             }
             //auto extract .param
             if (options.AutoExtractParam && extension == ".param") {
-                return UnpackParamFile(data, sp2[sp.Length - 2], Path.Combine(options.OutputPath, filename.Replace(".param", "")));
+                return UnpackParamFile(data, sp2[sp.Length - 2], Path.Combine(options.OutputPath, filename.Replace(".param", "")), options);
             }
             //auto extract .fmg
             if (options.AutoExtractFmg && extension == ".fmg") {
@@ -577,7 +588,7 @@ namespace BinderTool
                 return WriteFile(path, new MemoryStream(Encoding.UTF8.GetBytes(ans)));
             }
             //not doing any auto extract, just output the raw file
-            string newFileNamePath = Path.Combine(options.OutputPath, filename);
+            string newFileNamePath = Path.Combine(options.OutputPath, MakePathSafe(filename));
             return WriteFile(newFileNamePath, data);
         }
 
@@ -838,11 +849,8 @@ namespace BinderTool
             ulong bytesWritten = 0;
             foreach (var entry in file.Entries)
             {
-                try
-                {
-                    string fileName = FileNameDictionary.NormalizeFileName(entry.FileName);
-                    bytesWritten += ProcessFile(fileName, options, new MemoryStream(entry.EntryData));
-                } catch { }
+                string fileName = FileNameDictionary.NormalizeFileName(entry.FileName);
+                bytesWritten += ProcessFile(fileName, options, new MemoryStream(entry.EntryData));
             }
             return bytesWritten;
         }
@@ -1087,7 +1095,7 @@ namespace BinderTool
         {
             using (FileStream inputStream = new FileStream(options.InputPath, FileMode.Open, FileAccess.Read))
             {
-                return UnpackParamFile(inputStream, options.InputPath, options.OutputPath);
+                return UnpackParamFile(inputStream, options.InputPath, options.OutputPath, options);
             }
         }
 
@@ -1097,10 +1105,10 @@ namespace BinderTool
         /// <param name="fileName">The name of the param file (used to find a .csv description of its format)</param>
         /// <param name="outputPath">The path to write the result to</param>
         /// <returns>The number of bytes written to disk</returns>
-        private static ulong UnpackParamFile(Stream inputStream, string fileName, string outputPath)
+        private static ulong UnpackParamFile(Stream inputStream, string fileName, string outputPath, Options options)
         {
             ParamFile paramFile = ParamFile.ReadParamFile(inputStream);
-            ParamFormatDesc d = ParamFormatDesc.Read(fileName);
+            ParamFormatDesc d = paramFile.TryGetDef(options.InputGameVersion, options.ParamDefPath);
             if (d == null) {
                 var dir = Path.Combine(Directory.GetParent(outputPath).FullName, Path.GetFileNameWithoutExtension(outputPath));
                 Directory.CreateDirectory(dir);
@@ -1114,54 +1122,20 @@ namespace BinderTool
                 }
                 return bytesWritten;
             } else {
+                var data = paramFile.Parse(d);
                 var ans = new StringBuilder();
-                ans.Append("Name, ");
-                for (int i = 0; i < d.ParamInfo.Count; i++) {
-                    ans.Append(d.ParamInfo[i].Item1);
-                    if (i != d.ParamInfo.Count - 1) ans.Append(", ");
-                }
-                ans.AppendLine();
-                foreach (var entry in paramFile.Entries) {
-                    var reader = new BinaryReader(new MemoryStream(entry.Data));
-                    ans.Append($"{entry.Id:D10}, ");
-                    for (int i = 0; i < d.ParamInfo.Count; i++) {
-                        switch (d.ParamInfo[i].Item2) {
-                            case ParamType.Byte:
-                                ans.Append(reader.ReadSByte());
-                                break;
-                            case ParamType.UByte:
-                                ans.Append(reader.ReadByte());
-                                break;
-                            case ParamType.Short:
-                                ans.Append(reader.ReadInt16());
-                                break;
-                            case ParamType.UShort:
-                                ans.Append(reader.ReadUInt16());
-                                break;
-                            case ParamType.Int:
-                                ans.Append(reader.ReadInt32());
-                                break;
-                            case ParamType.UInt:
-                                ans.Append(reader.ReadUInt32());
-                                break;
-                            case ParamType.Long:
-                                ans.Append(reader.ReadInt64());
-                                break;
-                            case ParamType.ULong:
-                                ans.Append(reader.ReadUInt64());
-                                break;
-                            case ParamType.Float:
-                                ans.Append(reader.ReadSingle());
-                                break;
-                            case ParamType.Double:
-                                ans.Append(reader.ReadDouble());
-                                break;
-                        }
-                        if (i != d.ParamInfo.Count - 1) ans.Append(", ");
+                ans.AppendLine(d.Fields.Aggregate("Id", (a, b) => a + ", " + b.DisplayName));
+                foreach (var (id, row) in data) {
+                    ans.Append(id);
+                    var name = paramFile.GetName(id, options.InputGameVersion, fileName, options.ParamDefPath);
+                    if (name != null) ans.Append(" (").Append(name).Append(")");
+                    foreach (var (val, f) in row.Zip(d.Fields, (a, b) => (a, b))) {
+                        ans.Append(", ");
+                        ans.Append(f.Format(val));
                     }
                     ans.AppendLine();
                 }
-                return WriteFile(outputPath, new MemoryStream(Encoding.UTF8.GetBytes(ans.ToString())));
+                return WriteFile(outputPath+".csv", new MemoryStream(Encoding.UTF8.GetBytes(ans.ToString())));
             }
         }
 

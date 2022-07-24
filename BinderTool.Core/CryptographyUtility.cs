@@ -85,6 +85,29 @@ namespace BinderTool.Core
         /// <returns>A memory stream with the decrypted file</returns>
         public static MemoryStream DecryptRsa(string filePath, string key)
         {
+            if (filePath == null) {
+                throw new ArgumentNullException(nameof(filePath));
+            }
+
+            if (key == null) {
+                throw new ArgumentNullException(nameof(key));
+            }
+
+            var bytes = File.ReadAllBytes(filePath);
+            var decrypted = NativeRsa.Decrypt(bytes, key, Environment.ProcessorCount > 8 ? Environment.ProcessorCount / 2 : 4);
+            return new MemoryStream(decrypted);
+        }
+
+        /// <summary>
+        ///     Decrypts a file with a provided decryption key.
+        /// </summary>
+        /// <param name="filePath">An encrypted file</param>
+        /// <param name="key">The RSA key in PEM format</param>
+        /// <exception cref="ArgumentNullException">When the argument filePath is null</exception>
+        /// <exception cref="ArgumentNullException">When the argument keyPath is null</exception>
+        /// <returns>A memory stream with the decrypted file</returns>
+        public static MemoryStream DecryptRsaOld(string filePath, string key)
+        {
             if (filePath == null)
             {
                 throw new ArgumentNullException(nameof(filePath));

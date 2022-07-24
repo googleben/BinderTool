@@ -31,10 +31,10 @@ namespace BinderTool.Core.Bnd4
             string signature = reader.ReadString(4);
             if (signature != Bnd4Signature)
                 throw new Exception("Unknown signature");
-            reader.Skip(8);
-            int fileCount = reader.ReadInt32();
-            reader.Skip(8);
-            string version = reader.ReadString(8);
+            reader.Skip(8); //4
+            int fileCount = reader.ReadInt32(); //12
+            reader.Skip(8); //16
+            string version = reader.ReadString(8); //24
             int directoryEntrySize = reader.ReadInt32();
             reader.Skip(4);
             int dataOffset = reader.ReadInt32();

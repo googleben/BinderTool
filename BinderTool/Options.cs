@@ -42,6 +42,9 @@ namespace BinderTool
         [Option("collate-enfl-path", Default = "", HelpText = "Path of a .csv to collate .entryfilelist filename entries in instead of outputting the .enfl (overrides extract-enfl)")]
         public string CollateEnflPath { get; set; }
 
+        [Option("param-def-path", Default = "", HelpText = "Path to Paramdex param defs")]
+        public string ParamDefPath { get; set; }
+
         [Option("only-process-extension", Default = "", HelpText = "Makes the program process files with this extension only when extracting .bdt files, ignoring all other files, e.g. \".bnd\"")]
         public string OnlyProcessExtension { get; set; }
 
@@ -74,6 +77,8 @@ namespace BinderTool
                 AutoExtractTpf = AutoExtractTpf,
                 AutoExtractBdt = AutoExtractBdt,
                 CollateEnflPath = CollateEnflPath,
+                ParamDefPath = ParamDefPath,
+                OnlyProcessExtension = OnlyProcessExtension,
                 CreateHashList = CreateHashList,
                 FileNameSearch = FileNameSearch,
                 Recurse = Recurse
@@ -87,9 +92,24 @@ namespace BinderTool
                 throw new ArgumentNullException(nameof(path));
             }
 
-            if (Directory.Exists(path)) return (FileType.Folder, GameVersion.Common);
+            if (Directory.Exists(path)) {
+                if (
+                    File.Exists(Path.Combine(path, "eldenring.exe")) ||
+                    File.Exists(Path.Combine(path, "start_protected_game.exe"))
+                    ) 
+                {
+                    return (FileType.Folder, GameVersion.EldenRing);
+                }
+                if (File.Exists(Path.Combine(path, "Sekiro.exe")))
+                    return (FileType.Folder, GameVersion.Sekiro);
+                if (File.Exists(Path.Combine(path, "DarkSoulsIII.exe"))) 
+                    return (FileType.Folder, GameVersion.DarkSouls3);
+                if (File.Exists(Path.Combine(path, "DarkSoulsII.exe")))
+                    return (FileType.Folder, GameVersion.DarkSouls2);
+                return (FileType.Folder, GameVersion.Common);
+            }
 
-            var info = new FileInfo(path);
+                var info = new FileInfo(path);
             var fileName = Path.GetFileName(path);
 
             if (fileName == "Data0.bdt")
